@@ -20,6 +20,8 @@ go run .
 go build -ldflags=-H=windowsgui -o mysnake.exe .
 ```
 
+`-ldflags` 會把 `-H=windowsgui` 傳給 Go 連結器，將執行檔標記為 Windows GUI 應用程式。從檔案總管雙擊時，Windows 會直接開啟遊戲視窗，省去額外的主控台視窗。遊戲視窗本身由程式透過 Win32 API 建立。
+
 ## 操作方式
 
 | 按鍵 | 功能 |
