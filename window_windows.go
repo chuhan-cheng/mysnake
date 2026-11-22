@@ -4,6 +4,7 @@ import (
 	"log"
 	"runtime"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -53,6 +54,11 @@ var current game
 func main() {
 	runtime.LockOSThread()
 	current.reset()
+	pickup.open()
+	defer pickup.close()
+	if handle := openHistory(); handle != 0 {
+		defer syscall.CloseHandle(handle)
+	}
 	instance, _, _ := kernel.NewProc("GetModuleHandleW").Call(0)
 	cursor, _, _ := user.NewProc("LoadCursorW").Call(0, 32512)
 	icon, _, _ := user.NewProc("LoadIconW").Call(instance, 1)
@@ -63,7 +69,7 @@ func main() {
 	}
 	window, _, err := user.NewProc("CreateWindowExW").Call(
 		0, uintptr(unsafe.Pointer(name)), uintptr(unsafe.Pointer(wide("貪食蛇"))),
-		0x10CF0000, 0x80000000, 0x80000000, 670, 650, 0, 0, instance, 0,
+		0x10CF0000, 0x80000000, 0x80000000, 810, 780, 0, 0, instance, 0,
 	)
 	if window == 0 {
 		log.Fatal(err)
@@ -71,6 +77,7 @@ func main() {
 	if timer, _, err := user.NewProc("SetTimer").Call(window, 1, 115, 0); timer == 0 {
 		log.Fatal(err)
 	}
+	user.NewProc("SetTimer").Call(window, 2, 25, 0)
 	getMessage := user.NewProc("GetMessageW")
 	translate := user.NewProc("TranslateMessage")
 	dispatch := user.NewProc("DispatchMessageW")
@@ -96,34 +103,39 @@ func wide(s string) *uint16 {
 func windowProc(window uintptr, msg uint32, key, flags uintptr) uintptr {
 	switch msg {
 	case 2: // WM_DESTROY
+		finishRound(time.Now(), abandoned)
 		user.NewProc("PostQuitMessage").Call(0)
 	case 0x14: // WM_ERASEBKGND
 		return 1
 	case 0x0F: // WM_PAINT
 		render(window)
+	case 5: // WM_SIZE
+		bounds := rect{right: int32(uint16(flags)), bottom: int32(uint16(flags >> 16))}
+		historyPage = min(historyPage, pageCount(bounds)-1)
 	case 0x113: // WM_TIMER
-		if current.started && !current.paused && !current.ended {
-			current.step()
+		now := time.Now()
+		if key == 1 && current.started && !current.paused && !current.ended {
+			advance(now)
 			invalidate.Call(window, 0, 0)
 		}
+		if key == 2 && (now.Sub(foodAt) < foodEffect+25*time.Millisecond || now.Sub(impactAt) < impactEffect+25*time.Millisecond) {
+			invalidate.Call(window, 0, 0)
+		}
+	case 0x202: // WM_LBUTTONUP
+		var bounds rect
+		getClientRect.Call(window, uintptr(unsafe.Pointer(&bounds)))
+		x, y := int32(int16(flags)), int32(int16(flags>>16))
+		for _, button := range controls(bounds) {
+			if button.enabled && x >= button.area.left && x < button.area.right &&
+				y >= button.area.top && y < button.area.bottom {
+				handleKey(window, button.key, time.Now())
+				break
+			}
+		}
+		invalidate.Call(window, 0, 0)
 	case 0x100: // WM_KEYDOWN
-		switch key {
-		case 0x25, 'A':
-			current.turn(cell{-1, 0})
-		case 0x26, 'W':
-			current.turn(cell{0, -1})
-		case 0x27, 'D':
-			current.turn(cell{1, 0})
-		case 0x28, 'S':
-			current.turn(cell{0, 1})
-		case ' ':
-			if flags&(1<<30) == 0 && current.started && !current.ended {
-				current.paused = !current.paused
-			}
-		case 'R', 0x0D:
-			if flags&(1<<30) == 0 {
-				current.reset()
-			}
+		if flags&(1<<30) == 0 {
+			handleKey(window, key, time.Now())
 		}
 		invalidate.Call(window, 0, 0)
 	default:
@@ -160,47 +172,19 @@ func render(window uintptr) {
 	drawScene(dc, bounds)
 }
 
-func drawScene(dc uintptr, bounds rect) {
-	fill(dc, bounds, 0x101610)
-	size := min((bounds.right-24)/columns, (bounds.bottom-100)/rows)
-	if size < 5 {
-		label(dc, bounds, "請放大視窗")
-		return
-	}
-	width, height := size*columns, size*rows
-	x := (bounds.right - width) / 2
-	y := (bounds.bottom - height) / 2
-	fill(dc, rect{x - 2, y - 2, x + width + 2, y + height + 2}, 0x456048)
-	fill(dc, rect{x, y, x + width, y + height}, 0x1D291E)
-	drawCell := func(p cell, color uintptr, inset int32) {
-		left, top := x+int32(p.x)*size, y+int32(p.y)*size
-		fill(dc, rect{left + inset, top + inset, left + size - inset, top + size - inset}, color)
-	}
-	if !current.won {
-		drawCell(current.food, 0x577AFF, max(1, size/5))
-	}
-	for i, segment := range current.snake {
-		color := uintptr(0x73C448)
-		if i == 0 {
-			color = 0x99F0A7
-		}
-		drawCell(segment, color, 1)
-	}
-	label(dc, rect{0, 0, bounds.right, y}, current.scoreboard())
-	label(dc, rect{0, y + height, bounds.right, bounds.bottom}, current.status())
-}
-
 func fill(dc uintptr, area rect, color uintptr) {
 	brush, _, _ := createBrush.Call(color)
 	fillRect.Call(dc, uintptr(unsafe.Pointer(&area)), brush)
 	deleteObject.Call(brush)
 }
 
-func label(dc uintptr, area rect, value string) {
-	font, _, _ := gdi.NewProc("GetStockObject").Call(17)
+func label(dc uintptr, area rect, value string, height int32, color uintptr) {
+	font, _, _ := gdi.NewProc("CreateFontW").Call(uintptr(-height), 0, 0, 0, 600, 0, 0, 0,
+		1, 0, 0, 5, 0, uintptr(unsafe.Pointer(wide("Microsoft JhengHei UI"))))
+	defer deleteObject.Call(font)
 	old, _, _ := selectObject.Call(dc, font)
 	defer selectObject.Call(dc, old)
 	gdi.NewProc("SetBkMode").Call(dc, 1)
-	gdi.NewProc("SetTextColor").Call(dc, 0xD9E9DE)
+	gdi.NewProc("SetTextColor").Call(dc, color)
 	drawText.Call(dc, uintptr(unsafe.Pointer(wide(value))), ^uintptr(0), uintptr(unsafe.Pointer(&area)), 0x25)
 }

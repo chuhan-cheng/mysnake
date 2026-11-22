@@ -1,9 +1,6 @@
 package main
 
-import (
-	"fmt"
-	"math/rand/v2"
-)
+import "math/rand/v2"
 
 const (
 	columns = 24
@@ -98,7 +95,6 @@ func (g *game) step() {
 	g.snake[0] = head
 	if eating {
 		g.score++
-		g.best = max(g.best, g.score)
 		g.placeFood()
 	}
 }
@@ -116,8 +112,4 @@ func (g *game) status() string {
 	default:
 		return "方向鍵 / WASD 移動　空白鍵暫停　R 重開"
 	}
-}
-
-func (g *game) scoreboard() string {
-	return fmt.Sprintf("分數  %d          最高分  %d", g.score, g.best)
 }
