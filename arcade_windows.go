@@ -177,7 +177,7 @@ func drawArcade(dc uintptr, bounds rect, now time.Time) {
 		return rect{left + inset, top + inset, left + size - inset, top + size - inset}
 	}
 	if !current.won {
-		drawFruit(dc, box(current.food, max(1, size/6)), current.fruit)
+		drawPortraitFood(dc, box(current.food, 1), current.fruit, current.portrait, now)
 	}
 	for i := len(current.snake) - 1; i >= 0; i-- {
 		part := box(current.snake[i], 1)
@@ -221,8 +221,8 @@ func drawArcade(dc uintptr, bounds rect, now time.Time) {
 		recent := history[0]
 		label(dc, rect{0, h - 51, w, h - 26}, fmt.Sprintf("最近一局   %s   %d 分   %s", recent.Started.Local().Format("01/02 15:04"), recent.Score, durationText(recent.Duration)), 14, ink)
 	}
-	if !saveError {
-		label(dc, rect{0, h - 26, w, h}, "圓形 +1　菱形 +5　星形 +10", 14, ink)
+	if !saveError && !current.ended {
+		label(dc, rect{0, h - 26, w, h}, fmt.Sprintf("目前食物  %s  +%d", portraitNames[current.portrait], current.fruit.points()), 14, ink)
 	}
 }
 
@@ -255,27 +255,6 @@ func drawHistory(dc uintptr, bounds rect) {
 func durationText(duration time.Duration) string {
 	seconds := int64(duration / time.Second)
 	return fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
-}
-
-func drawFruit(dc uintptr, area rect, kind fruit) {
-	if kind == ordinary {
-		rounded(dc, area, pink, area.right-area.left)
-		return
-	}
-	x, y := (area.left+area.right)/2, (area.top+area.bottom)/2
-	d := max(1, (area.right-area.left)/5)
-	color := uintptr(0x54CCFF)
-	points := []point{{x, area.top}, {area.right, y}, {x, area.bottom}, {area.left, y}}
-	if kind == legendary {
-		color = 0xFFE393
-		points = []point{{x, area.top}, {x + d, y - d}, {area.right, y}, {x + d, y + d},
-			{x, area.bottom}, {x - d, y + d}, {area.left, y}, {x - d, y - d}}
-	}
-	brush, _, _ := createBrush.Call(color)
-	defer deleteObject.Call(brush)
-	old, _, _ := selectObject.Call(dc, brush)
-	defer selectObject.Call(dc, old)
-	gdi.NewProc("Polygon").Call(dc, uintptr(unsafe.Pointer(&points[0])), uintptr(len(points)))
 }
 
 func rounded(dc uintptr, area rect, color uintptr, radius int32) {

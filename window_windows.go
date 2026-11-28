@@ -94,6 +94,7 @@ func main() {
 		log.Fatal(err)
 	}
 	setTimer.Call(window, 2, 25, 0)
+	setTimer.Call(window, 3, 65, 0)
 	getMessage := user.NewProc("GetMessageW")
 	translate := user.NewProc("TranslateMessage")
 	dispatch := user.NewProc("DispatchMessageW")
@@ -136,6 +137,9 @@ func windowProc(window uintptr, msg uint32, key, flags uintptr) uintptr {
 			invalidate.Call(window, 0, 0)
 		}
 		if key == 2 && (now.Sub(foodAt) < foodEffect+25*time.Millisecond || now.Sub(impactAt) < impactEffect+25*time.Millisecond) {
+			invalidate.Call(window, 0, 0)
+		}
+		if key == 3 && !showHistory && !current.paused && !current.ended {
 			invalidate.Call(window, 0, 0)
 		}
 	case 0x202: // WM_LBUTTONUP

@@ -43,6 +43,7 @@ type game struct {
 	snake                       []cell
 	direction, food             cell
 	fruit                       fruit
+	portrait                    int
 	pendingTurns                [2]cell
 	turnCount                   int
 	score, best                 int
@@ -74,6 +75,7 @@ func (g *game) placeFood() {
 	}
 	g.food = free[rand.IntN(len(free))]
 	g.fruit = fruitForRoll(rand.IntN(100))
+	g.portrait = rand.IntN(2)
 }
 
 func contains(body []cell, p cell) bool {
