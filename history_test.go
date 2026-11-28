@@ -6,6 +6,18 @@ import (
 	"time"
 )
 
+func TestFruitHighScoreExcludesLegacyAndAbandonedRounds(t *testing.T) {
+	records := []roundRecord{
+		{Score: 100, Result: collision},
+		{Score: 70, Result: abandoned, Rules: fruitRules},
+		{Score: 20, Result: collision, Rules: fruitRules},
+		{Score: 30, Result: completed, Rules: fruitRules},
+	}
+	if got := bestFruitScore(records); got != 30 {
+		t.Fatalf("新版最高分為 %d，預期 30", got)
+	}
+}
+
 func TestRoundClockExcludesPause(t *testing.T) {
 	start := time.Unix(100, 0).UTC()
 	clock := roundClock{resumed: start}

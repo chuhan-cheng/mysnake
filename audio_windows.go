@@ -17,6 +17,7 @@ var (
 	waveOutUnprepare = winmm.NewProc("waveOutUnprepareHeader")
 	waveOutClose     = winmm.NewProc("waveOutClose")
 	pickup           = pickupPlayer{}
+	audioIdle        = pickupPlayer{}
 )
 
 type waveHeader struct {
@@ -33,7 +34,7 @@ type pickupPlayer struct {
 	pin    runtime.Pinner
 }
 
-func (p *pickupPlayer) open() bool {
+func (p *pickupPlayer) open(samples []byte) bool {
 	// pickup.wav has a 16-byte PCM format chunk at offset 20 and sample data
 	// starting at offset 44. WAVEFORMATEX adds two zero bytes for cbSize.
 	var format [18]byte
@@ -44,7 +45,6 @@ func (p *pickupPlayer) open() bool {
 		return false
 	}
 
-	samples := pickupWAV[44:]
 	p.header = waveHeader{data: &samples[0], length: uint32(len(samples))}
 	// WinMM keeps both addresses until the buffer has been unprepared.
 	p.pin.Pin(&p.header)
@@ -56,6 +56,30 @@ func (p *pickupPlayer) open() bool {
 	}
 	p.device = device
 	return true
+}
+
+func startAudio() {
+	if pickup.device == 0 {
+		pickup.open(pickupWAV[44:])
+	}
+	if pickup.device == 0 || audioIdle.device != 0 {
+		return
+	}
+	// Keep the shared endpoint streaming between short effects.
+	silence := make([]byte, 44100*2/10)
+	if audioIdle.open(silence) {
+		const loopBuffer = 0x0000000C // WHDR_BEGINLOOP | WHDR_ENDLOOP
+		audioIdle.header.flags |= loopBuffer
+		audioIdle.header.loops = ^uint32(0)
+		if !audioIdle.play() {
+			audioIdle.close()
+		}
+	}
+}
+
+func stopAudio() {
+	audioIdle.close()
+	pickup.close()
 }
 
 func (p *pickupPlayer) play() bool {

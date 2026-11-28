@@ -9,9 +9,40 @@ const (
 
 type cell struct{ x, y int }
 
+type fruit int
+
+const (
+	ordinary fruit = iota
+	rare
+	legendary
+)
+
+func fruitForRoll(roll int) fruit {
+	if roll < 80 {
+		return ordinary
+	}
+	if roll < 95 {
+		return rare
+	}
+	return legendary
+}
+
+func (f fruit) points() int {
+	return [...]int{1, 5, 10}[f]
+}
+
+func speedLevel(score int) int {
+	return min(score/10+1, 7)
+}
+
+func moveInterval(score int) int {
+	return 115 - (speedLevel(score)-1)*10
+}
+
 type game struct {
 	snake                       []cell
 	direction, food             cell
+	fruit                       fruit
 	pendingTurns                [2]cell
 	turnCount                   int
 	score, best                 int
@@ -42,6 +73,7 @@ func (g *game) placeFood() {
 		return
 	}
 	g.food = free[rand.IntN(len(free))]
+	g.fruit = fruitForRoll(rand.IntN(100))
 }
 
 func contains(body []cell, p cell) bool {
@@ -94,7 +126,7 @@ func (g *game) step() {
 	copy(g.snake[1:], body)
 	g.snake[0] = head
 	if eating {
-		g.score++
+		g.score += g.fruit.points()
 		g.placeFood()
 	}
 }

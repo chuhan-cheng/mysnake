@@ -20,6 +20,7 @@ var (
 	historyPage      int
 	muted            bool
 	newBest          bool
+	foodBonus        int
 	foodAt, impactAt time.Time
 )
 
@@ -44,11 +45,7 @@ func openHistory() syscall.Handle {
 	dataDirectory = directory
 	history, err = loadRecords(filepath.Join(directory, "rounds"))
 	saveError = err != nil
-	for _, record := range history {
-		if record.Result == collision || record.Result == completed {
-			current.best = max(current.best, record.Score)
-		}
-	}
+	current.best = bestFruitScore(history)
 	if data, err := os.ReadFile(filepath.Join(directory, "muted.json")); err == nil {
 		muted = string(data) == "true\n"
 	}
@@ -87,6 +84,7 @@ func restart(now time.Time) {
 	clock = roundClock{}
 	recordPath = ""
 	newBest = false
+	foodBonus = 0
 	foodAt, impactAt = time.Time{}, time.Time{}
 }
 
@@ -102,13 +100,18 @@ func advance(now time.Time) {
 	}
 	started := clock.record.Started.IsZero()
 	if started {
-		clock = roundClock{record: roundRecord{Started: now, Result: inProgress}, resumed: now}
+		clock = roundClock{record: roundRecord{Started: now, Result: inProgress, Rules: fruitRules}, resumed: now}
 		if dataDirectory != "" {
 			recordPath = filepath.Join(dataDirectory, "rounds", fmt.Sprintf("%d.json", now.UnixNano()))
 		}
 	}
 	score := current.score
 	current.step()
+	if current.score != score {
+		foodAt = now
+		foodBonus = current.score - score
+		playPickup()
+	}
 	if current.ended {
 		result := collision
 		if current.won {
@@ -117,17 +120,13 @@ func advance(now time.Time) {
 		finishRound(now, result)
 		if !current.won {
 			impactAt = now
-		}
-		if newBest || current.won {
-			playCue("SystemAsterisk")
-		} else {
-			playCue("SystemExclamation")
+			if newBest {
+				playCue("SystemAsterisk")
+			} else {
+				playCue("SystemExclamation")
+			}
 		}
 		return
-	}
-	if current.score != score {
-		foodAt = now
-		playPickup()
 	}
 	if started || score != current.score || now.Sub(lastSave) >= 5*time.Second {
 		checkpoint(now)
@@ -146,8 +145,11 @@ func playCue(alias string) {
 func toggleMute() {
 	muted = !muted
 	if muted {
-		pickup.stop()
+		stopAudio()
 		playSound.Call(0, 0, 0)
+	} else {
+		startAudio()
+		playPickup()
 	}
 	if dataDirectory != "" && saveJSON(filepath.Join(dataDirectory, "muted.json"), muted) != nil {
 		saveError = true

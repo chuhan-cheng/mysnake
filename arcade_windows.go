@@ -67,6 +67,9 @@ func handleKey(window, key uintptr, now time.Time) {
 	case 'M':
 		toggleMute()
 		return
+	case 0x71: // F2
+		playPickup()
+		return
 	case 'H', 0x1B:
 		if showHistory {
 			showHistory = false
@@ -143,12 +146,13 @@ func drawArcade(dc uintptr, bounds rect, now time.Time) {
 	for i, text := range []string{
 		fmt.Sprintf("分數  %d", current.score),
 		fmt.Sprintf("最高分  %d", current.best),
+		fmt.Sprintf("速度  Lv.%d", speedLevel(current.score)),
 		"時間  " + durationText(clock.elapsed(now)),
 	} {
-		left := 24 + int32(i)*(w-48)/3
-		card := rect{left, 72, left + (w-48)/3 - 6, 111}
-		rounded(dc, card, []uintptr{green, cream, white}[i], 14)
-		label(dc, card, text, 18, ink)
+		left := 24 + int32(i)*(w-48)/4
+		card := rect{left, 72, left + (w-48)/4 - 6, 111}
+		rounded(dc, card, []uintptr{green, cream, 0xF2D6C7, white}[i], 14)
+		label(dc, card, text, 16, ink)
 	}
 	size := min((w-56)/columns, (h-209)/rows)
 	x, y := (w-size*columns)/2, 120+(h-209-size*rows)/2
@@ -173,7 +177,7 @@ func drawArcade(dc uintptr, bounds rect, now time.Time) {
 		return rect{left + inset, top + inset, left + size - inset, top + size - inset}
 	}
 	if !current.won {
-		rounded(dc, box(current.food, max(1, size/5)), pink, size)
+		drawFruit(dc, box(current.food, max(1, size/6)), current.fruit)
 	}
 	for i := len(current.snake) - 1; i >= 0; i-- {
 		part := box(current.snake[i], 1)
@@ -196,7 +200,7 @@ func drawArcade(dc uintptr, bounds rect, now time.Time) {
 		top := max(board.top, cy-32-rise)
 		area := rect{cx - 23, top, cx + 23, top + 26}
 		rounded(dc, area, cream, 13)
-		label(dc, area, "+1", 18, ink)
+		label(dc, area, fmt.Sprintf("+%d", foodBonus), 18, ink)
 	}
 	status := current.status()
 	if current.ended {
@@ -216,6 +220,9 @@ func drawArcade(dc uintptr, bounds rect, now time.Time) {
 	if len(history) > 0 {
 		recent := history[0]
 		label(dc, rect{0, h - 51, w, h - 26}, fmt.Sprintf("最近一局   %s   %d 分   %s", recent.Started.Local().Format("01/02 15:04"), recent.Score, durationText(recent.Duration)), 14, ink)
+	}
+	if !saveError {
+		label(dc, rect{0, h - 26, w, h}, "圓形 +1　菱形 +5　星形 +10", 14, ink)
 	}
 }
 
@@ -248,6 +255,27 @@ func drawHistory(dc uintptr, bounds rect) {
 func durationText(duration time.Duration) string {
 	seconds := int64(duration / time.Second)
 	return fmt.Sprintf("%02d:%02d", seconds/60, seconds%60)
+}
+
+func drawFruit(dc uintptr, area rect, kind fruit) {
+	if kind == ordinary {
+		rounded(dc, area, pink, area.right-area.left)
+		return
+	}
+	x, y := (area.left+area.right)/2, (area.top+area.bottom)/2
+	d := max(1, (area.right-area.left)/5)
+	color := uintptr(0x54CCFF)
+	points := []point{{x, area.top}, {area.right, y}, {x, area.bottom}, {area.left, y}}
+	if kind == legendary {
+		color = 0xFFE393
+		points = []point{{x, area.top}, {x + d, y - d}, {area.right, y}, {x + d, y + d},
+			{x, area.bottom}, {x - d, y + d}, {area.left, y}, {x - d, y - d}}
+	}
+	brush, _, _ := createBrush.Call(color)
+	defer deleteObject.Call(brush)
+	old, _, _ := selectObject.Call(dc, brush)
+	defer selectObject.Call(dc, old)
+	gdi.NewProc("Polygon").Call(dc, uintptr(unsafe.Pointer(&points[0])), uintptr(len(points)))
 }
 
 func rounded(dc uintptr, area rect, color uintptr, radius int32) {

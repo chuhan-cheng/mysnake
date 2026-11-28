@@ -16,6 +16,7 @@ const (
 	abandoned  = "中途退出"
 	collision  = "撞擊結束"
 	completed  = "填滿棋盤"
+	fruitRules = 1
 )
 
 type roundRecord struct {
@@ -23,6 +24,17 @@ type roundRecord struct {
 	Duration time.Duration `json:"duration_ns"`
 	Score    int           `json:"score"`
 	Result   string        `json:"result"`
+	Rules    int           `json:"rules,omitempty"`
+}
+
+func bestFruitScore(records []roundRecord) int {
+	best := 0
+	for _, record := range records {
+		if record.Rules == fruitRules && (record.Result == collision || record.Result == completed) {
+			best = max(best, record.Score)
+		}
+	}
+	return best
 }
 
 type roundClock struct {

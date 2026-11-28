@@ -22,6 +22,7 @@ var (
 	createBrush   = gdi.NewProc("CreateSolidBrush")
 	deleteObject  = gdi.NewProc("DeleteObject")
 	selectObject  = gdi.NewProc("SelectObject")
+	setTimer      = user.NewProc("SetTimer")
 )
 
 type rect struct{ left, top, right, bottom int32 }
@@ -50,15 +51,30 @@ type windowClass struct {
 }
 
 var current game
+var movementInterval int
+
+func updateMovementTimer(window uintptr) error {
+	interval := moveInterval(current.score)
+	if interval == movementInterval {
+		return nil
+	}
+	if timer, _, err := setTimer.Call(window, 1, uintptr(interval), 0); timer == 0 {
+		return err
+	}
+	movementInterval = interval
+	return nil
+}
 
 func main() {
 	runtime.LockOSThread()
 	current.reset()
-	pickup.open()
-	defer pickup.close()
 	if handle := openHistory(); handle != 0 {
 		defer syscall.CloseHandle(handle)
 	}
+	if !muted {
+		startAudio()
+	}
+	defer stopAudio()
 	instance, _, _ := kernel.NewProc("GetModuleHandleW").Call(0)
 	cursor, _, _ := user.NewProc("LoadCursorW").Call(0, 32512)
 	icon, _, _ := user.NewProc("LoadIconW").Call(instance, 1)
@@ -74,10 +90,10 @@ func main() {
 	if window == 0 {
 		log.Fatal(err)
 	}
-	if timer, _, err := user.NewProc("SetTimer").Call(window, 1, 115, 0); timer == 0 {
+	if err := updateMovementTimer(window); err != nil {
 		log.Fatal(err)
 	}
-	user.NewProc("SetTimer").Call(window, 2, 25, 0)
+	setTimer.Call(window, 2, 25, 0)
 	getMessage := user.NewProc("GetMessageW")
 	translate := user.NewProc("TranslateMessage")
 	dispatch := user.NewProc("DispatchMessageW")
@@ -116,6 +132,7 @@ func windowProc(window uintptr, msg uint32, key, flags uintptr) uintptr {
 		now := time.Now()
 		if key == 1 && current.started && !current.paused && !current.ended {
 			advance(now)
+			_ = updateMovementTimer(window)
 			invalidate.Call(window, 0, 0)
 		}
 		if key == 2 && (now.Sub(foodAt) < foodEffect+25*time.Millisecond || now.Sub(impactAt) < impactEffect+25*time.Millisecond) {
@@ -129,6 +146,7 @@ func windowProc(window uintptr, msg uint32, key, flags uintptr) uintptr {
 			if button.enabled && x >= button.area.left && x < button.area.right &&
 				y >= button.area.top && y < button.area.bottom {
 				handleKey(window, button.key, time.Now())
+				_ = updateMovementTimer(window)
 				break
 			}
 		}
@@ -136,6 +154,7 @@ func windowProc(window uintptr, msg uint32, key, flags uintptr) uintptr {
 	case 0x100: // WM_KEYDOWN
 		if flags&(1<<30) == 0 {
 			handleKey(window, key, time.Now())
+			_ = updateMovementTimer(window)
 		}
 		invalidate.Call(window, 0, 0)
 	default:
